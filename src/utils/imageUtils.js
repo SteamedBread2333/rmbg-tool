@@ -92,7 +92,7 @@ export function postprocessResult(originalImage, maskTensor, resizedWidth, resiz
   }
   console.log('Mask data range:', minVal, 'to', maxVal);
   
-  // create canvas
+  // Create mask canvas
   const maskCanvas = document.createElement('canvas');
   const maskCtx = maskCanvas.getContext('2d');
   maskCanvas.width = resizedWidth;
@@ -122,7 +122,7 @@ export function postprocessResult(originalImage, maskTensor, resizedWidth, resiz
     }
   }
   
-  // deal with alpha channel
+  // Put the mask data to canvas
   maskCtx.putImageData(maskImageData, 0, 0);
   
   // Create result canvas
@@ -131,18 +131,34 @@ export function postprocessResult(originalImage, maskTensor, resizedWidth, resiz
   resultCanvas.width = originalWidth;
   resultCanvas.height = originalHeight;
   
+  // Clear the result canvas with transparent background
+  resultCtx.clearRect(0, 0, originalWidth, originalHeight);
+  
   // Draw original image
   resultCtx.drawImage(originalImage, 0, 0, originalWidth, originalHeight);
   
-  // Use mask to draw image
+  // Use mask to draw image - try a different approach
   resultCtx.globalCompositeOperation = 'destination-in';
   resultCtx.imageSmoothingEnabled = true;
   resultCtx.imageSmoothingQuality = 'high';
   
-  // Draw mask image
-  resultCtx.drawImage(maskCanvas, 0, 0, originalWidth, originalHeight);
+  // Calculate the exact scaling to maintain aspect ratio
+  const scaleX = originalWidth / resizedWidth;
+  const scaleY = originalHeight / resizedHeight;
   
-  console.log('Drawing mask image');
+  // Use the same scale for both dimensions to maintain aspect ratio
+  const uniformScale = Math.min(scaleX, scaleY);
+  const scaledMaskWidth = resizedWidth * uniformScale;
+  const scaledMaskHeight = resizedHeight * uniformScale;
+  
+  // Center the mask
+  const offsetX = (originalWidth - scaledMaskWidth) / 2;
+  const offsetY = (originalHeight - scaledMaskHeight) / 2;
+  
+  // Draw mask with proper scaling and positioning
+  resultCtx.drawImage(maskCanvas, offsetX, offsetY, scaledMaskWidth, scaledMaskHeight);
+  
+  console.log('Drawing mask image with uniform scaling');
   return resultCanvas.toDataURL('image/png');
 }
 
