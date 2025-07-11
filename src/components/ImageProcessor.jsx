@@ -192,7 +192,7 @@ const ImageProcessor = () => {
       );
       setProcessedImage(resultUrl);
     } catch (err) {
-      console.error("图像处理失败:", err);
+      console.error("Image processing failed:", err);
       setError("Image processing failed: " + err.message);
     } finally {
       setIsProcessing(false);
