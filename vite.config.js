@@ -6,6 +6,7 @@ import copy from 'rollup-plugin-copy'
 export default defineConfig(({ command }) => {
   console.log('command', command);
   return {
+    base: command === 'build' ? '/rmbg-tool/' : '',
     plugins: [react(), copy({
       targets: [{
         src: 'src/wasm/**/*',
