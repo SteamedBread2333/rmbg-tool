@@ -4,6 +4,7 @@ import {
   postprocessResult,
   loadModel,
 } from "../utils/imageUtils";
+import ImageGenerator from "./ImageGenerator";
 import "./ImageProcessor.css";
 
 const ImageProcessor = () => {
@@ -208,6 +209,13 @@ const ImageProcessor = () => {
     link.click();
   };
 
+  // Handle generated image from ImageGenerator
+  const handleGeneratedImage = (imageUrl) => {
+    setUploadedImage(imageUrl);
+    setProcessedImage(null);
+    setError("");
+  };
+
   console.log("isCameraActive", isCameraActive);
   return (
     <div className="image-processor-container">
@@ -222,6 +230,9 @@ const ImageProcessor = () => {
         <div className="error-message">{error}</div>
       ) : (
         <>
+          {/* Image Generator Section */}
+          <ImageGenerator onImageGenerated={handleGeneratedImage} />
+          
           {/* Upload area */}
           <div
             className="upload-area"
