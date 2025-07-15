@@ -3,6 +3,7 @@
 A local image background removal application built with Vite + React + ONNX Runtime Web, utilizing the RMBG-1.4 model for high-quality background separation, with integrated AI image generation capabilities.
 
 ## [Live Demo](https://steamedbread2333.github.io/rmbg-tool/)
+> **The loaded model is relatively large, and the online experience will be very poor.**
 
 ## Features
 - Runs entirely locally, protecting privacy
