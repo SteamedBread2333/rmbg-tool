@@ -170,24 +170,27 @@ export async function loadModel() {
     // Use WASM as execution provider
     const executionProviders = ['wasm'];
     console.log('import.meta.env.PROD', import.meta.env.PROD)
-    const session = await ort.InferenceSession.create(`${import.meta.env.PROD ? '/rmbg-tool' : ''}/RMBG-1.4.onnx`, {
-      executionProviders: executionProviders,
-      graphOptimizationLevel: 'all',
-      enableCpuMemArena: true,
-      enableMemPattern: true
-    });
+    const session = await ort.InferenceSession.create(
+      `${import.meta.env.PROD ? '/rmbg-tool' : ''}/RMBG-1.4.onnx`,
+      // `${import.meta.env.PROD ? '/rmbg-tool' : ''}/RMBG-2.0.onnx`,
+      {
+        executionProviders: executionProviders,
+        graphOptimizationLevel: 'all',
+        enableCpuMemArena: true,
+        enableMemPattern: true
+      });
 
     console.log('Model loaded successfully, executionProviders: ', session.executionProviders);
     return session;
   } catch (error) {
     console.error('Model loading failed: ', error);
     // Provide detailed error message
-    if (error.message.includes('Failed to fetch')) {
+    if (error?.message?.includes('Failed to fetch')) {
       throw new Error('Cannot find model file, please check public directory');
-    } else if (error.message.includes('WebAssembly')) {
+    } else if (error?.message?.includes('WebAssembly')) {
       throw new Error('WASM module error, please check wasm directory');
     } else {
-      throw new Error('Model initialization failed: ' + error.message);
+      throw new Error('Model initialization failed: ' + error?.message);
     }
   }
 }
