@@ -160,9 +160,23 @@ const ImageProcessor = () => {
     setIsProcessing(true);
     setError("");
 
+    let objectUrlToRevoke = null;
+
     try {
+      let imageSrc = uploadedImage;
+
+      // Remote URLs taint the canvas unless loaded as same-origin blob data
+      if (/^https?:\/\//i.test(uploadedImage)) {
+        const response = await fetch(uploadedImage, { mode: "cors" });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image (${response.status})`);
+        }
+        objectUrlToRevoke = URL.createObjectURL(await response.blob());
+        imageSrc = objectUrlToRevoke;
+      }
+
       const img = new Image();
-      img.src = uploadedImage;
+      img.src = imageSrc;
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
@@ -196,6 +210,9 @@ const ImageProcessor = () => {
       console.error("Image processing failed:", err);
       setError("Image processing failed: " + err.message);
     } finally {
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
       setIsProcessing(false);
     }
   };

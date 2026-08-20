@@ -96,7 +96,7 @@ const ImageGenerator = ({ onImageGenerated }) => {
       huggingface: {
         name: 'Hugging Face',
         description: 'Free tier available, uses SDXL model',
-        url: 'https://huggingface.co/settings/tokens',
+        url: 'https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write&tokenType=fineGrained',
         model: 'stable-diffusion-xl-base-1.0'
       },
       replicate: {

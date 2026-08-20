@@ -38,10 +38,11 @@ curl -L -o ./public/RMBG-1.4.onnx https://huggingface.co/briaai/RMBG-1.4/resolve
 
 The application supports three AI image generation providers:
 
-#### 1. Hugging Face Inference API (Recommended for beginners)
+#### 1. Hugging Face Inference Providers (Recommended for beginners)
 - **Cost**: Free tier available
-- **Model**: Stable Diffusion XL Base 1.0
-- **Get API Key**: [Hugging Face Tokens](https://huggingface.co/settings/tokens)
+- **Model**: Stable Diffusion XL Base 1.0 (via fal-ai)
+- **Endpoint**: `https://router.huggingface.co` (legacy `api-inference.huggingface.co` is shut down)
+- **Get API Key**: [Hugging Face Tokens](https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write&tokenType=fineGrained) — enable **Make calls to Inference Providers**
 - **Features**: 
   - Free to use
   - High-quality generation

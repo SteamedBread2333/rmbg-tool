@@ -1,7 +1,11 @@
 // API Configuration
 const API_CONFIG = {
   huggingface: {
-    url: 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0',
+    // Legacy api-inference.huggingface.co was decommissioned.
+    // SDXL is served via Inference Providers (fal-ai) through the HF router.
+    model: 'stabilityai/stable-diffusion-xl-base-1.0',
+    providerModelId: 'fal-ai/fast-sdxl',
+    url: 'https://router.huggingface.co/fal-ai/fal-ai/fast-sdxl?_subdomain=queue',
     headers: {
       'Authorization': 'Bearer YOUR_HF_TOKEN',
       'Content-Type': 'application/json'
@@ -57,34 +61,103 @@ class APIKeyManager {
 
 const apiKeyManager = new APIKeyManager();
 
-// Hugging Face API call
+async function pollFalAiQueueResult(submitUrl, queueResponse, headers) {
+  const requestId = queueResponse.request_id;
+  if (!requestId) {
+    throw new Error('Hugging Face API error: missing fal-ai request id');
+  }
+
+  const parsedUrl = new URL(submitUrl);
+  const modelPath = new URL(queueResponse.response_url).pathname;
+  const queryParams = parsedUrl.search;
+  const baseUrl = `${parsedUrl.protocol}//${parsedUrl.host}/fal-ai`;
+  const statusUrl = `${baseUrl}${modelPath}/status${queryParams}`;
+  const resultUrl = `${baseUrl}${modelPath}${queryParams}`;
+
+  let status = queueResponse.status;
+  const maxAttempts = 120;
+
+  for (let attempt = 0; attempt < maxAttempts && status !== 'COMPLETED'; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const statusResponse = await fetch(statusUrl, { headers });
+    if (!statusResponse.ok) {
+      throw new Error(`Hugging Face API error: failed to poll fal-ai status (${statusResponse.status})`);
+    }
+    const statusPayload = await statusResponse.json();
+    status = statusPayload.status;
+    if (status === 'FAILED') {
+      throw new Error(`Hugging Face API error: ${statusPayload.error || 'fal-ai generation failed'}`);
+    }
+  }
+
+  if (status !== 'COMPLETED') {
+    throw new Error('Hugging Face API error: image generation timeout');
+  }
+
+  const resultResponse = await fetch(resultUrl, { headers });
+  if (!resultResponse.ok) {
+    throw new Error(`Hugging Face API error: failed to fetch fal-ai result (${resultResponse.status})`);
+  }
+
+  return resultResponse.json();
+}
+
+// Hugging Face Inference Providers (router) — SDXL via fal-ai
 async function generateImageWithHuggingFace(prompt, options = {}) {
   const apiKey = apiKeyManager.getKey('huggingface');
   if (!apiKey) {
     throw new Error('Please set Hugging Face API key first');
   }
 
+  const headers = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  };
+
   const response = await fetch(API_CONFIG.huggingface.url, {
     method: 'POST',
-    headers: {
-      ...API_CONFIG.huggingface.headers,
-      'Authorization': `Bearer ${apiKey}`
-    },
+    headers,
     body: JSON.stringify({
-      inputs: prompt,
-      parameters: {
-        num_inference_steps: options.steps || 30,
-        guidance_scale: options.guidance_scale || 7.5,
+      prompt,
+      num_inference_steps: options.steps || 30,
+      guidance_scale: options.guidance_scale || 7.5,
+      image_size: {
         width: options.width || 1024,
         height: options.height || 1024,
-        ...options
-      }
-    })
+      },
+    }),
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Hugging Face API error: ${error.error || response.statusText}`);
+    let detail = response.statusText;
+    try {
+      const error = await response.json();
+      detail = error.error || error.message || JSON.stringify(error);
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(
+      `Hugging Face API error: ${detail}. Use a fine-grained token with "Make calls to Inference Providers" permission.`
+    );
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+
+  // Some providers still return raw image bytes; fal-ai queue returns JSON.
+  if (contentType.includes('application/json') || contentType.includes('text/json')) {
+    const queuePayload = await response.json();
+    const result = await pollFalAiQueueResult(API_CONFIG.huggingface.url, queuePayload, headers);
+    const imageUrl = result?.images?.[0]?.url;
+    if (!imageUrl) {
+      throw new Error('Hugging Face API error: no image URL in fal-ai response');
+    }
+    // Convert remote CDN URL to a same-origin blob URL so canvas getImageData works
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Hugging Face API error: failed to download generated image (${imageResponse.status})`);
+    }
+    const imageBlob = await imageResponse.blob();
+    return URL.createObjectURL(imageBlob);
   }
 
   const blob = await response.blob();
@@ -144,7 +217,12 @@ async function pollReplicateResult(predictionId, apiKey) {
     const result = await response.json();
     
     if (result.status === 'succeeded') {
-      return result.output[0];
+      const remoteUrl = result.output[0];
+      const imageResponse = await fetch(remoteUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to download Replicate image (${imageResponse.status})`);
+      }
+      return URL.createObjectURL(await imageResponse.blob());
     } else if (result.status === 'failed') {
       throw new Error(`Image generation failed: ${result.error}`);
     }
