@@ -20,47 +20,38 @@ async function configureOrtEnvironment() {
   }
 }
 
-// Image preprocessing: resize, normalize, and convert to tensor
+// Image preprocessing: force 1024x1024 (RMBG-1.4 ONNX fixed input), normalize, convert to tensor
 export async function preprocessImage(imageElement, targetSize = 1024) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
 
-  // Keep width and height while maintaining aspect ratio
-  let width = imageElement.width;
-  let height = imageElement.height;
-  const maxDim = Math.max(width, height);
-  const scale = targetSize / maxDim;
-  width = Math.round(width * scale);
-  height = Math.round(height * scale);
+  // RMBG-1.4 requires fixed [1, 3, 1024, 1024] — match official bilinear resize to model_input_size
+  const width = targetSize;
+  const height = targetSize;
 
   canvas.width = width;
   canvas.height = height;
 
-  // Set high-quality scaling
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(imageElement, 0, 0, width, height);
 
-  // Get image data
   const imageData = ctx.getImageData(0, 0, width, height);
   const data = new Float32Array(3 * width * height);
 
-  // RMBG model preprocessing: normalize to [0,1], then standardize
-  // According to Hugging Face documentation, use mean 0.5 and standard deviation 1.0
+  // Normalize to [0,1], then standardize with mean 0.5 / std 1.0 (official RMBG-1.4)
   for (let i = 0; i < height; i++) {
     for (let j = 0; j < width; j++) {
       const pixelIndex = (i * width + j) * 4;
 
-      // Extract RGB values and normalize to [0,1]
       const r = imageData.data[pixelIndex] / 255.0;
       const g = imageData.data[pixelIndex + 1] / 255.0;
       const b = imageData.data[pixelIndex + 2] / 255.0;
 
-      // Standardization: (x - 0.5) / 1.0 = x - 0.5
       const tensorIndex = i * width + j;
-      data[tensorIndex] = r - 0.5;                                    // R channel
-      data[height * width + tensorIndex] = g - 0.5;                  // G channel  
-      data[2 * height * width + tensorIndex] = b - 0.5;              // B channel
+      data[tensorIndex] = r - 0.5;
+      data[height * width + tensorIndex] = g - 0.5;
+      data[2 * height * width + tensorIndex] = b - 0.5;
     }
   }
 
@@ -73,17 +64,15 @@ export async function preprocessImage(imageElement, targetSize = 1024) {
   };
 }
 
-// Postprocessing: convert model output to mask and composite with original image
+// Postprocessing: resize mask back to original size (official RMBG-1.4) and composite
 export function postprocessResult(originalImage, maskTensor, resizedWidth, resizedHeight, originalWidth, originalHeight) {
   console.log('Starting postprocessing, mask tensor shape:', maskTensor.dims);
   console.log('Original image size:', originalWidth, 'x', originalHeight);
   console.log('Processed size:', resizedWidth, 'x', resizedHeight);
 
-  // Get mask data
   const maskData = maskTensor.data;
   console.log('Mask data length:', maskData.length);
 
-  // Calculate mask data range
   let minVal = maskData[0];
   let maxVal = maskData[0];
   for (let i = 1; i < maskData.length; i++) {
@@ -92,73 +81,44 @@ export function postprocessResult(originalImage, maskTensor, resizedWidth, resiz
   }
   console.log('Mask data range:', minVal, 'to', maxVal);
 
-  // Create mask canvas
   const maskCanvas = document.createElement('canvas');
   const maskCtx = maskCanvas.getContext('2d');
   maskCanvas.width = resizedWidth;
   maskCanvas.height = resizedHeight;
 
-  // Create mask image data
   const maskImageData = maskCtx.createImageData(resizedWidth, resizedHeight);
+  const range = maxVal - minVal || 1;
 
-  // Postprocess mask data
-  // According to reference project, mask needs to be normalized
   for (let i = 0; i < resizedHeight; i++) {
     for (let j = 0; j < resizedWidth; j++) {
       const pixelIndex = i * resizedWidth + j;
-      const maskValue = maskData[pixelIndex];
-
-      // Normalize mask value to [0,1] range
-      const normalizedValue = (maskValue - minVal) / (maxVal - minVal);
-
-      // Create alpha channel
+      const normalizedValue = (maskData[pixelIndex] - minVal) / range;
       const alpha = Math.round(normalizedValue * 255);
 
       const imageDataIndex = pixelIndex * 4;
-      maskImageData.data[imageDataIndex] = 255;     // Red channel
-      maskImageData.data[imageDataIndex + 1] = 255; // Green channel
-      maskImageData.data[imageDataIndex + 2] = 255; // Blue channel
-      maskImageData.data[imageDataIndex + 3] = alpha; // Alpha channel
+      maskImageData.data[imageDataIndex] = 255;
+      maskImageData.data[imageDataIndex + 1] = 255;
+      maskImageData.data[imageDataIndex + 2] = 255;
+      maskImageData.data[imageDataIndex + 3] = alpha;
     }
   }
 
-  // Put the mask data to canvas
   maskCtx.putImageData(maskImageData, 0, 0);
 
-  // Create result canvas
   const resultCanvas = document.createElement('canvas');
   const resultCtx = resultCanvas.getContext('2d');
   resultCanvas.width = originalWidth;
   resultCanvas.height = originalHeight;
 
-  // Clear the result canvas with transparent background
   resultCtx.clearRect(0, 0, originalWidth, originalHeight);
-
-  // Draw original image
   resultCtx.drawImage(originalImage, 0, 0, originalWidth, originalHeight);
 
-  // Use mask to draw image - try a different approach
+  // Stretch mask to original dimensions (matches official F.interpolate back to orig size)
   resultCtx.globalCompositeOperation = 'destination-in';
   resultCtx.imageSmoothingEnabled = true;
   resultCtx.imageSmoothingQuality = 'high';
+  resultCtx.drawImage(maskCanvas, 0, 0, originalWidth, originalHeight);
 
-  // Calculate the exact scaling to maintain aspect ratio
-  const scaleX = originalWidth / resizedWidth;
-  const scaleY = originalHeight / resizedHeight;
-
-  // Use the same scale for both dimensions to maintain aspect ratio
-  const uniformScale = Math.min(scaleX, scaleY);
-  const scaledMaskWidth = resizedWidth * uniformScale;
-  const scaledMaskHeight = resizedHeight * uniformScale;
-
-  // Center the mask
-  const offsetX = (originalWidth - scaledMaskWidth) / 2;
-  const offsetY = (originalHeight - scaledMaskHeight) / 2;
-
-  // Draw mask with proper scaling and positioning
-  resultCtx.drawImage(maskCanvas, offsetX, offsetY, scaledMaskWidth, scaledMaskHeight);
-
-  console.log('Drawing mask image with uniform scaling');
   return resultCanvas.toDataURL('image/png');
 }
 
